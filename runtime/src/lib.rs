@@ -9,6 +9,9 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+pub mod pos;
+
+use frame_support::traits::U128CurrencyToVote;
 use scale_codec::{Decode, Encode};
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -17,10 +20,12 @@ use sp_core::{
 	OpaqueMetadata, H160, H256, U256,
 };
 use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
+	create_runtime_str,
+	curve::PiecewiseLinear,
+	generic, impl_opaque_keys,
 	traits::{
 		AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf, Dispatchable,
-		IdentifyAccount, NumberFor, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
+		IdentifyAccount, NumberFor, OpaqueKeys, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity, TransactionValidityError},
 	ApplyExtrinsicResult, MultiSignature, Perbill, Permill,
@@ -222,6 +227,13 @@ parameter_types! {
 	.avg_block_initialization(AVERAGE_ON_INITIALIZE_RATIO)
 	.build_or_panic();
 	pub BlockLength: frame_system::limits::BlockLength = frame_system::limits::BlockLength::max_with_normal_ratio(5 * 1024 * 1024, NORMAL_DISPATCH_RATIO);
+	pub storage Minutes: BlockNumber = (60_000 / RuntimeSpecification::chain_spec().block_time_in_millis) as u32;
+	pub storage Hours: BlockNumber = Minutes::get() * 60;
+	pub storage Days: BlockNumber = Hours::get() * 24;
+
+	pub storage EpochDurationInBlocks: BlockNumber = 10 * Minutes::get();
+	pub storage EpochDurationInSlots: u64 = EpochDurationInBlocks::get() as u64;
+
 	pub const SS58Prefix: u8 = 88;
 }
 
@@ -541,12 +553,27 @@ construct_runtime!(
 		// GGX pallets
 		AccountFilter: account_filter,
 		RuntimeSpecification: chain_spec,
+		// Proof of Stake and Sessions
+		Council: pallet_collective::<Instance1>,
+		Staking: pallet_staking,
+		Session: pallet_session,
+		Treasury: pallet_treasury,
+		Bounties: pallet_bounties,
+		ElectionProviderMultiPhase: pallet_election_provider_multi_phase,
 		// Wasm contracts
 		Contracts: pallet_contracts,
 		// Astar
 		Xvm: pallet_xvm,
 	}
 );
+
+impl<C> frame_system::offchain::SendTransactionTypes<C> for Runtime
+where
+	RuntimeCall: From<C>,
+{
+	type Extrinsic = UncheckedExtrinsic;
+	type OverarchingCall = RuntimeCall;
+}
 
 pub struct TransactionConverter;
 
